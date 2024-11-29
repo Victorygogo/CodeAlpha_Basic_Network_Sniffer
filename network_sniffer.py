@@ -1,68 +1,42 @@
-from scapy.all import sniff, IP, TCP, UDP
-from collections import defaultdict
-import datetime
+import socket
+import scapy.all as scapy
+from struct import unpack
 
-class NetworkSniffer:
-    def __init__(self):
-        # Tracking network statistics
-        self.packet_count = 0
-        self.protocol_stats = defaultdict(int)
-        self.ip_connections = defaultdict(set)
-        self.start_time = datetime.datetime.now()
+def packet_handler(packet):
+    src_mac = packet.src
+    dst_mac = packet.dst
 
-    def packet_callback(self, packet):
-        # Increment total packet count
-        self.packet_count += 1
+    if packet.haslayer(scapy.IP):
+        src_ip = packet[scapy.IP].src
+        dst_ip = packet[scapy.IP].dst
+        protocol = packet[scapy.IP].proto
 
-        # Check if packet has IP layer
-        if IP in packet:
-            src_ip = packet[IP].src
-            dst_ip = packet[IP].dst
+        payload = packet[scapy.Raw].load if packet.haslayer(scapy.Raw) else ''
 
-            # Track IP connections
-            self.ip_connections[src_ip].add(dst_ip)
+        # Print basic packet information
+        print(f"Source MAC: {src_mac}, Destination MAC: {dst_mac}, Source IP: {src_ip}, Destination IP: {dst_ip}, Protocol: {protocol}, Payload Length: {len(payload)}")
 
-            # Protocol analysis
-            if TCP in packet:
-                self.protocol_stats['TCP'] += 1
-            elif UDP in packet:
-                self.protocol_stats['UDP'] += 1
-            else:
-                self.protocol_stats['Other'] += 1
+        # Interpret payload based on protocol
+        if protocol == 6:  # TCP protocol
+            if packet.haslayer(scapy.TCP):
+                src_port = packet[scapy.TCP].sport
+                dst_port = packet[scapy.TCP].dport
+                if dst_port == 80 or src_port == 80:  # HTTP traffic usually uses port 80
+                    http_payload = payload.decode('utf-8', errors='ignore')
+                    # Now you can work with the HTTP payload
+                    print("HTTP Payload:", http_payload)
 
-    def start_sniffing(self, interface='eth0', packet_count=100):
-        """
-        Start network sniffing on the specified interface
-        
-        Args:
-            interface (str): Network interface to sniff (default 'eth0')
-            packet_count (int): Number of packets to capture
-        """
-        print(f"Starting network sniffing on {interface}...")
-        sniff(iface=interface, prn=self.packet_callback, count=packet_count)
-        self.generate_report()
+        elif protocol == 17:  # UDP protocol
+            if packet.haslayer(scapy.UDP):
+                src_port = packet[scapy.UDP].sport
+                dst_port = packet[scapy.UDP].dport
+                # Interpret UDP payload based on specific applications
+                pass  # Add your UDP payload interpretation code here
 
-    def generate_report(self):
-        """Generate a summary report of network traffic"""
-        end_time = datetime.datetime.now()
-        duration = end_time - self.start_time
+        # Add interpretation for other protocols as needed
 
-        print("\n--- Network Traffic Report ---")
-        print(f"Total Packets Captured: {self.packet_count}")
-        print(f"Capture Duration: {duration}")
-        
-        print("\nProtocol Distribution:")
-        for protocol, count in self.protocol_stats.items():
-            percentage = (count / self.packet_count) * 100
-            print(f"{protocol}: {count} packets ({percentage:.2f}%)")
-        
-        print("\nUnique IP Connections:")
-        for src_ip, destinations in self.ip_connections.items():
-            print(f"{src_ip} connected to: {', '.join(destinations)}")
+# Set the network interface for capturing packets
+scapy.conf.iface = 'wlan0'
 
-def main():
-    sniffer = NetworkSniffer()
-    sniffer.start_sniffing(interface='eth0', packet_count=50)
-
-if __name__ == '__main__':
-    main()
+# Set a callback function to handle captured packets
+scapy.sniff(prn=packet_handler, store=0)
